@@ -1,11 +1,73 @@
-# 1) مسیرها
-TEXT_FILE="/var/www/html/mirzabotconfig/text.php"
-AQAYE_DIR="/var/www/html/mirzabotconfig/payment/aqayepardakht"
+#!/usr/bin/env bash
+# install.sh — Mirzabot → TetraPay edits and file replacements
+# Safe, UTF-8, works on Ubuntu. No 'set -u' to avoid unbound errors.
+set -Ee -o pipefail
+
+trap 'echo "❌ خطا در خط ${LINENO}. اجرای اسکریپت متوقف شد." >&2' ERR
+
+# ------------------------- Config -------------------------
+TEXT_FILE="${TEXT_FILE:-/var/www/html/mirzabotconfig/text.php}"
+AQAYE_DIR="${AQAYE_DIR:-/var/www/html/mirzabotconfig/payment/aqayepardakht}"
 AQAYE_MAIN="${AQAYE_DIR}/aqayepardakht.php"
 AQAYE_BACK="${AQAYE_DIR}/back.php"
 
-# 2) ایجاد متن جدیدِ بلوک aqayepardakht در یک فایل موقت
-cat > /tmp/new_block.txt <<'PHPNEW'
+DEFAULT_SRC="https://raw.githubusercontent.com/Alna7/Mirzabot-edit-TetraPay/main/files"
+SRC_BASE="${SRC_BASE:-$DEFAULT_SRC}"
+
+# ------------------------- Args -------------------------
+for arg in "$@"; do
+  case "$arg" in
+    --src=*)  SRC_BASE="${arg#--src=}" ;;
+    --text=*) TEXT_FILE="${arg#--text=}" ;;
+    --dir=*)  AQAYE_DIR="${arg#--dir=}"
+              AQAYE_MAIN="${AQAYE_DIR}/aqayepardakht.php"
+              AQAYE_BACK="${AQAYE_DIR}/back.php"
+              ;;
+    *) echo "⚠️  پارامتر ناشناخته: $arg" ;;
+  esac
+done
+
+# ------------------------- Checks -------------------------
+if [ "$(id -u)" -ne 0 ]; then
+  echo "❌ لطفاً با sudo/روت اجرا کنید." >&2
+  exit 1
+fi
+if [ -z "$TEXT_FILE" ] || [ ! -f "$TEXT_FILE" ]; then
+  echo "❌ فایل پیدا نشد: ${TEXT_FILE:-<unset>}" >&2
+  exit 1
+fi
+mkdir -p "$AQAYE_DIR"
+
+# ------------------------- Helpers -------------------------
+ts() { date +"%Y%m%d-%H%M%S"; }
+
+backup_file() {
+  f="$1"
+  if [ -z "$f" ] || [ ! -e "$f" ]; then
+    echo "⚠️  backup_file: مسیر معتبر نیست: ${f:-<unset>}" >&2
+    return 0
+  fi
+  b="${f}.bak.$(ts)"
+  cp -a -- "$f" "$b" && echo "🗂️  بکاپ گرفت: $b"
+}
+
+inplace_perl() {
+  expr="$1"; tgt="$2"
+  if [ -z "$expr" ] || [ -z "$tgt" ] || [ ! -f "$tgt" ]; then
+    echo "⚠️  inplace_perl: ورودی نامعتبر یا فایل نیست: ${tgt:-<unset>}" >&2
+    return 0
+  fi
+  perl -CSDA -0777 -i -pe "$expr" "$tgt"
+}
+
+# ------------------------- Backups -------------------------
+echo "==> گرفتن بکاپ‌ها…"
+backup_file "$TEXT_FILE"
+[ -f "$AQAYE_MAIN" ] && backup_file "$AQAYE_MAIN"
+[ -f "$AQAYE_BACK" ] && backup_file "$AQAYE_BACK"
+
+# ------------------------- New block content -------------------------
+NEW_BLOCK=$(cat <<'PHPNEW'
 $textbotlang['users']['moeny']['aqayepardakht'] = "
 ✅ فاکتور پرداخت ایجاد شد.
         
@@ -16,9 +78,11 @@ $textbotlang['users']['moeny']['aqayepardakht'] = "
 
 ⚡️سفارش شما بصورت اتوماتیک و لحظه ای تایید خواهد شد";
 PHPNEW
+)
 
-# 3) جایگزینی خودِ بلوک (رویکرد دو مرحله‌ای: اول جایگزینی با توکن، بعد تزریق متن دقیق)
-perl -CSDA -0777 -i -pe '
+# ------------------------- Step 1: Replace the whole aqayepardakht string value -------------------------
+echo "==> اصلاح بلوک aqayepardakht در text.php …"
+inplace_perl '
   s/
     (\$textbotlang\[\x27users\x27\]\[\x27moeny\x27\]\[\x27aqayepardakht\x27\]\s*=\s*)
     "
@@ -29,23 +93,37 @@ perl -CSDA -0777 -i -pe '
   /$1"__REPL__";/gsx
 ' "$TEXT_FILE"
 
-perl -CSDA -0777 -i -pe '
-  BEGIN{
-    open F,"/tmp/new_block.txt" or die $!;
-    $r=join"",<F>; close F;
-    $r =~ s/\\/\\\\/g; $r =~ s/"/\\"/g; $r =~ s/\n/\\n/g;
-  }
-  s/"__REPL__";/"$r";/s
-' "$TEXT_FILE"
+# Inject exact multi-line content
+ESCAPED=$(printf "%s" "$NEW_BLOCK" | perl -CSDA -pe 's/\\/\\\\/g; s/"/\\"/g; s/\n/\\n/g;')
+inplace_perl "s/\"__REPL__\";/\"$ESCAPED\";/s" "$TEXT_FILE"
 
-# 4) جایگزینی عنوان ایموجی‌دار و همه رخدادهای «آقای پرداخت»
-perl -CSDA -0777 -i -pe 's/🔵\s*آقای پرداخت/💵 تتراپی TetraPay ( هوشمند )/g; s/آقای پرداخت/تتراپی/g' "$TEXT_FILE"
+# ------------------------- Step 2 & 3: Brand renames -------------------------
+echo "==> جایگزینی عنوان برند و نام‌ها…"
+inplace_perl 's/🔵\s*آقای پرداخت/💵 تتراپی TetraPay ( هوشمند )/g' "$TEXT_FILE"
+inplace_perl 's/آقای پرداخت/تتراپی/g' "$TEXT_FILE"
 
-# 5) دانلود و جایگزینی دو فایل PHP از ریپو شما
-curl -fsSL "https://raw.githubusercontent.com/Alna7/Mirzabot-edit-TetraPay/main/files/payment/aqayepardakht/aqayepardakht.php" -o "${AQAYE_MAIN}"
-curl -fsSL "https://raw.githubusercontent.com/Alna7/Mirzabot-edit-TetraPay/main/files/payment/aqayepardakht/back.php"          -o "${AQAYE_BACK}"
+# ------------------------- Step 4: Download/replace PHP files -------------------------
+echo "==> دانلود و جایگزینی فایل‌های پرداخت از گیت‌هاب…"
+TMP_MAIN="$(mktemp)"; TMP_BACK="$(mktemp)"
+curl -fsSL "${SRC_BASE}/payment/aqayepardakht/aqayepardakht.php" -o "$TMP_MAIN"
+curl -fsSL "${SRC_BASE}/payment/aqayepardakht/back.php" -o "$TMP_BACK"
 
-# 6) (اختیاری) ری‌لود آپاچی
-systemctl reload apache2 2>/dev/null || true
+if [ ! -s "$TMP_MAIN" ] || [ ! -s "$TMP_BACK" ]; then
+  echo "❌ دریافت فایل‌ها ناموفق بود. آدرس منبع را بررسی کنید: $SRC_BASE" >&2
+  rm -f "$TMP_MAIN" "$TMP_BACK"
+  exit 1
+fi
 
-echo "✅ Hotfix انجام شد."
+install -m 0644 "$TMP_MAIN" "$AQAYE_MAIN"
+install -m 0644 "$TMP_BACK" "$AQAYE_BACK"
+rm -f "$TMP_MAIN" "$TMP_BACK"
+
+# ------------------------- Finalize -------------------------
+(systemctl reload apache2 2>/dev/null || systemctl reload nginx 2>/dev/null || true)
+
+echo "✅ همه‌چیز با موفقیت انجام شد.
+- text.php ویرایش شد.
+- «🔵 آقای پرداخت» → «💵 تتراپی TetraPay ( هوشمند )»
+- همهٔ «آقای پرداخت» → «تتراپی»
+- aqayepardakht.php و back.php از گیت‌هاب جایگزین شدند.
+"
