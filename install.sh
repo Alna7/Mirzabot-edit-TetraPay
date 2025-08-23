@@ -1,67 +1,65 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# install.sh — Mirzabot → TetraPay edits and file replacements
+# - Backs up originals
+# - Edits text.php (block + brand renames)
+# - Replaces aqayepardakht.php & back.php from GitHub raw
+# - Safe for Persian text (UTF-8), multi-line aware
+set -Eeuo pipefail
 
-# ------------- Config -------------
-# مسیر فایل‌ها (در صورت نیاز تغییر بده)
-TEXT_FILE="/var/www/html/mirzabotconfig/text.php"
-AQAYE_DIR="/var/www/html/mirzabotconfig/payment/aqayepardakht"
+trap 'echo "❌ خطا در خط ${LINENO}. اجرای اسکریپت متوقف شد." >&2' ERR
+
+# ------------------------- Config (change if needed) -------------------------
+TEXT_FILE="${TEXT_FILE:-/var/www/html/mirzabotconfig/text.php}"
+AQAYE_DIR="${AQAYE_DIR:-/var/www/html/mirzabotconfig/payment/aqayepardakht}"
 AQAYE_MAIN="${AQAYE_DIR}/aqayepardakht.php"
 AQAYE_BACK="${AQAYE_DIR}/back.php"
 
-# منبع دریافت فایل‌های جایگزین از گیت‌هاب (raw)
-# می‌تونی با --src=... در زمان اجرا بدهی یا اینجا پیشفرض را ثابت کنی.
-SRC_BASE="${SRC_BASE:-}"
+# Default source (can be overridden with --src=...)
+DEFAULT_SRC="https://raw.githubusercontent.com/Alna7/Mirzabot-edit-TetraPay/main/files"
+SRC_BASE="${SRC_BASE:-$DEFAULT_SRC}"
+
+# ------------------------- Args -------------------------
 for arg in "$@"; do
   case "$arg" in
     --src=*) SRC_BASE="${arg#--src=}" ;;
-    *) echo "Unknown arg: $arg" ;;
+    --text=*) TEXT_FILE="${arg#--text=}" ;;
+    *) echo "⚠️  پارامتر ناشناخته: $arg" ;;
   esac
 done
 
-if [[ -z "${SRC_BASE}" ]]; then
-  echo "❌ لطفاً آدرس RAW گیت‌هاب را با پارامتر --src بده:
-  مثال:
-    --src=https://raw.githubusercontent.com/<user>/<repo>/<branch>/files
-  که داخلش مسیرهای:
-    payment/aqayepardakht/aqayepardakht.php
-    payment/aqayepardakht/back.php
-  موجود باشند."
-  exit 1
-fi
-
-# ------------- Checks -------------
+# ------------------------- Checks -------------------------
 if [[ $EUID -ne 0 ]]; then
-  echo "❌ این اسکریپت باید با دسترسی روت اجرا شود (sudo)."
+  echo "❌ لطفاً با sudo/روت اجرا کنید." >&2
   exit 1
 fi
-
 if [[ ! -f "$TEXT_FILE" ]]; then
-  echo "❌ فایل پیدا نشد: $TEXT_FILE"
+  echo "❌ فایل پیدا نشد: $TEXT_FILE" >&2
   exit 1
 fi
 
-# ------------- Helpers -------------
+mkdir -p "$AQAYE_DIR"
+
+# ------------------------- Helpers -------------------------
 ts() { date +"%Y%m%d-%H%M%S"; }
+
 backup_file() {
-  local f="$1"
-  cp -a "$f" "${f}.bak.$(ts)"
-  echo "🗂️  بکاپ گرفت: ${f}.bak.$(ts)"
+  local f="$1" b="${f}.bak.$(ts)"
+  cp -a "$f" "$b"
+  echo "🗂️  بکاپ گرفت: $b"
 }
 
 inplace_perl() {
-  # ویرایش امن با Perl (یونیکد/چندخطی)
+  # perl with UTF-8, slurp whole file (-0777), in-place (-i)
   perl -CSDA -0777 -i -pe "$1" "$2"
 }
 
-# ------------- Step 0: Backups -------------
+# ------------------------- Backups -------------------------
 echo "==> گرفتن بکاپ‌ها…"
 backup_file "$TEXT_FILE"
 [[ -f "$AQAYE_MAIN" ]] && backup_file "$AQAYE_MAIN"
 [[ -f "$AQAYE_BACK" ]] && backup_file "$AQAYE_BACK"
 
-# ------------- Step 1: جایگزینی متن aqayepardakht در text.php -------------
-
-# متن جدید (به صورت رشتهٔ escape شده برای Perl)
+# ------------------------- New block content -------------------------
 NEW_BLOCK=$(cat <<'PHPNEW'
 $textbotlang['users']['moeny']['aqayepardakht'] = "
 ✅ فاکتور پرداخت ایجاد شد.
@@ -75,10 +73,10 @@ $textbotlang['users']['moeny']['aqayepardakht'] = "
 PHPNEW
 )
 
-# الگوی یافتن کل مقدار رشتهٔ aqayepardakht (بدون تکیه بر متن قبلی)
-# هر چیزی بین اولین " تا " قبل از ; را تعویض می‌کنیم.
+# ------------------------- Step 1: Replace the whole aqayepardakht string value -------------------------
 echo "==> اصلاح بلوک aqayepardakht در text.php …"
-perl -CSDA -0777 -i -pe '
+# First pass: replace the value with a token to avoid escaping hell
+inplace_perl '
   s/
     (\$textbotlang\[\x27users\x27\]\[\x27moeny\x27\]\[\x27aqayepardakht\x27\]\s*=\s*)
     "
@@ -89,42 +87,41 @@ perl -CSDA -0777 -i -pe '
   /$1"__REPL__";/gsx
 ' "$TEXT_FILE"
 
-# حالا __REPL__ را با متن دقیق جایگزین کن (فرارِ کارکترها برای Perl):
-ESCAPED=$(printf "%s" "$NEW_BLOCK" | perl -CSDA -pe 's/\\/\\\\/g; s/\$/\\\$/g; s/@/\\@/g; s/\n/\\n/g; s/"/\\"/g;')
-perl -CSDA -0777 -i -pe "s/\"__REPL__\";/\"$ESCAPED\";/s" "$TEXT_FILE"
+# Second pass: inject our exact multi-line content
+# Escape for Perl string literal
+ESCAPED=$(printf "%s" "$NEW_BLOCK" | perl -CSDA -pe 's/\\/\\\\/g; s/"/\\"/g; s/\n/\\n/g;')
+inplace_perl "s/\"__REPL__\";/\"$ESCAPED\";/s" "$TEXT_FILE"
 
-# ------------- Step 2: "🔵 آقای پرداخت" → "💵 تتراپی TetraPay ( هوشمند )" -------------
-echo "==> جایگزینی عنوان برند با ایموجی جدید…"
+# ------------------------- Step 2 & 3: Brand renames -------------------------
+echo "==> جایگزینی عنوان برند و نام‌ها…"
+# Specific emoji-title replacement
 inplace_perl 's/🔵\s*آقای پرداخت/💵 تتراپی TetraPay ( هوشمند )/g' "$TEXT_FILE"
-
-# ------------- Step 3: همهٔ «آقای پرداخت» → «تتراپی» -------------
-echo "==> جایگزینی تمام رخدادهای «آقای پرداخت» به «تتراپی» …"
+# All remaining occurrences
 inplace_perl 's/آقای پرداخت/تتراپی/g' "$TEXT_FILE"
 
-# ------------- Step 4: دریافت و جایگزینی دو فایل PHP از گیت‌هاب -------------
+# ------------------------- Step 4: Download/replace PHP files -------------------------
 echo "==> دانلود و جایگزینی فایل‌های پرداخت از گیت‌هاب…"
-mkdir -p "$AQAYE_DIR"
+TMP_MAIN="$(mktemp)"; TMP_BACK="$(mktemp)"
+curl -fsSL "${SRC_BASE}/payment/aqayepardakht/aqayepardakht.php" -o "$TMP_MAIN"
+curl -fsSL "${SRC_BASE}/payment/aqayepardakht/back.php"          -o "$TMP_BACK"
 
-curl -fsSL "${SRC_BASE}/payment/aqayepardakht/aqayepardakht.php" -o "${AQAYE_MAIN}.new"
-curl -fsSL "${SRC_BASE}/payment/aqayepardakht/back.php"          -o "${AQAYE_BACK}.new"
-
-# کنترل سادهٔ اعتبار دریافت
-if [[ ! -s "${AQAYE_MAIN}.new" || ! -s "${AQAYE_BACK}.new" ]]; then
-  echo "❌ دریافت فایل‌های جایگزین ناموفق بود. آدرس --src را بررسی کن."
-  rm -f "${AQAYE_MAIN}.new" "${AQAYE_BACK}.new"
+if [[ ! -s "$TMP_MAIN" || ! -s "$TMP_BACK" ]]; then
+  echo "❌ دریافت فایل‌ها ناموفق بود. آدرس منبع را بررسی کنید: $SRC_BASE" >&2
+  rm -f "$TMP_MAIN" "$TMP_BACK"
   exit 1
 fi
 
-# جایگزینی اتمیک
-mv -f "${AQAYE_MAIN}.new" "$AQAYE_MAIN"
-mv -f "${AQAYE_BACK}.new" "$AQAYE_BACK"
+install -m 0644 "$TMP_MAIN" "$AQAYE_MAIN"
+install -m 0644 "$TMP_BACK" "$AQAYE_BACK"
+rm -f "$TMP_MAIN" "$TMP_BACK"
 
-# ------------- Done -------------
-echo "✅ انجام شد.
-- فایل‌های اصلی بکاپ شدند.
+# ------------------------- Finalize -------------------------
+# Try reload web server if present (non-fatal)
+(systemctl reload apache2 2>/dev/null || systemctl reload nginx 2>/dev/null || true)
+
+echo "✅ همه‌چیز با موفقیت انجام شد.
 - text.php ویرایش شد.
-- فایل‌های aqayepardakht.php و back.php جایگزین شدند.
-
-ℹ️ در صورت نیاز، سرویس وب‌سرورت را ری‌لود کن:
-  sudo systemctl reload apache2  || true
+- همهٔ «🔵 آقای پرداخت» → «💵 تتراپی TetraPay ( هوشمند )»
+- همهٔ «آقای پرداخت» → «تتراپی»
+- aqayepardakht.php و back.php از گیت‌هاب جایگزین شدند.
 "
