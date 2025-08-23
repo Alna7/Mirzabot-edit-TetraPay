@@ -62,7 +62,7 @@ backup_file "$TEXT_FILE"
 # ------------- Step 1: جایگزینی متن aqayepardakht در text.php -------------
 
 # متن جدید (به صورت رشتهٔ escape شده برای Perl)
-read -r -d '' NEW_BLOCK <<'PHPNEW'
+NEW_BLOCK=$(cat <<'PHPNEW'
 $textbotlang['users']['moeny']['aqayepardakht'] = "
 ✅ فاکتور پرداخت ایجاد شد.
         
@@ -73,6 +73,7 @@ $textbotlang['users']['moeny']['aqayepardakht'] = "
 
 ⚡️سفارش شما بصورت اتوماتیک و لحظه ای تایید خواهد شد";
 PHPNEW
+)
 
 # الگوی یافتن کل مقدار رشتهٔ aqayepardakht (بدون تکیه بر متن قبلی)
 # هر چیزی بین اولین " تا " قبل از ; را تعویض می‌کنیم.
