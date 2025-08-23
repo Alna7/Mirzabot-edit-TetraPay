@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # install.sh — Mirzabot → TetraPay edits and file replacements
-# - Backs up originals
+# - Backs up originals safely
 # - Edits text.php (block + brand renames)
 # - Replaces aqayepardakht.php & back.php from GitHub raw
-# - Safe for Persian text (UTF-8), multi-line aware
+# - UTF-8 safe; multi-line aware
 set -Eeuo pipefail
 
 trap 'echo "❌ خطا در خط ${LINENO}. اجرای اسکریپت متوقف شد." >&2' ERR
@@ -23,6 +23,10 @@ for arg in "$@"; do
   case "$arg" in
     --src=*) SRC_BASE="${arg#--src=}" ;;
     --text=*) TEXT_FILE="${arg#--text=}" ;;
+    --dir=*)  AQAYE_DIR="${arg#--dir=}"
+              AQAYE_MAIN="${AQAYE_DIR}/aqayepardakht.php"
+              AQAYE_BACK="${AQAYE_DIR}/back.php"
+              ;;
     *) echo "⚠️  پارامتر ناشناخته: $arg" ;;
   esac
 done
@@ -32,8 +36,8 @@ if [[ $EUID -ne 0 ]]; then
   echo "❌ لطفاً با sudo/روت اجرا کنید." >&2
   exit 1
 fi
-if [[ ! -f "$TEXT_FILE" ]]; then
-  echo "❌ فایل پیدا نشد: $TEXT_FILE" >&2
+if [[ -z "${TEXT_FILE:-}" || ! -f "$TEXT_FILE" ]]; then
+  echo "❌ فایل پیدا نشد: ${TEXT_FILE:-<unset>}" >&2
   exit 1
 fi
 
@@ -43,21 +47,31 @@ mkdir -p "$AQAYE_DIR"
 ts() { date +"%Y%m%d-%H%M%S"; }
 
 backup_file() {
-  local f="$1" b="${f}.bak.$(ts)"
-  cp -a "$f" "$b"
+  local f="${1:-}"
+  if [[ -z "$f" || ! -e "$f" ]]; then
+    echo "⚠️  backup_file: مسیر معتبر نیست: ${f:-<unset>}" >&2
+    return 1
+  fi
+  local b="${f}.bak.$(ts)"
+  cp -a -- "$f" "$b"
   echo "🗂️  بکاپ گرفت: $b"
 }
 
 inplace_perl() {
-  # perl with UTF-8, slurp whole file (-0777), in-place (-i)
-  perl -CSDA -0777 -i -pe "$1" "$2"
+  local expr="${1:-}"
+  local tgt="${2:-}"
+  if [[ -z "$expr" || -z "$tgt" || ! -f "$tgt" ]]; then
+    echo "⚠️  inplace_perl: ورودی نامعتبر یا فایل وجود ندارد: ${tgt:-<unset>}" >&2
+    return 1
+  fi
+  perl -CSDA -0777 -i -pe "$expr" "$tgt"
 }
 
 # ------------------------- Backups -------------------------
 echo "==> گرفتن بکاپ‌ها…"
-backup_file "$TEXT_FILE"
-[[ -f "$AQAYE_MAIN" ]] && backup_file "$AQAYE_MAIN"
-[[ -f "$AQAYE_BACK" ]] && backup_file "$AQAYE_BACK"
+backup_file "$TEXT_FILE" || true
+[[ -f "$AQAYE_MAIN" ]] && backup_file "$AQAYE_MAIN" || true
+[[ -f "$AQAYE_BACK" ]] && backup_file "$AQAYE_BACK" || true
 
 # ------------------------- New block content -------------------------
 NEW_BLOCK=$(cat <<'PHPNEW'
@@ -116,12 +130,11 @@ install -m 0644 "$TMP_BACK" "$AQAYE_BACK"
 rm -f "$TMP_MAIN" "$TMP_BACK"
 
 # ------------------------- Finalize -------------------------
-# Try reload web server if present (non-fatal)
 (systemctl reload apache2 2>/dev/null || systemctl reload nginx 2>/dev/null || true)
 
 echo "✅ همه‌چیز با موفقیت انجام شد.
 - text.php ویرایش شد.
-- همهٔ «🔵 آقای پرداخت» → «💵 تتراپی TetraPay ( هوشمند )»
+- «🔵 آقای پرداخت» → «💵 تتراپی TetraPay ( هوشمند )»
 - همهٔ «آقای پرداخت» → «تتراپی»
 - aqayepardakht.php و back.php از گیت‌هاب جایگزین شدند.
 "
