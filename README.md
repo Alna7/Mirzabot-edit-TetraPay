@@ -24,7 +24,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/Alna7/Mirzabot-edit-Tetr
 
 اگر نمی‌خواهید از نصب خودکار استفاده کنید، می‌توانید مراحل زیر را به صورت دستی انجام دهید:
 
-1. فایل‌های مورد نیاز را از پوشه [`files`](https://github.com/Alna7/Mirzabot-edit-TetraPay/tree/main/files) دانلود کنید.  
+1. فایل‌های مورد نیاز را از پوشه [`aqayepardakht`]([s](https://github.com/Alna7/Mirzabot-edit-TetraPay/tree/main/files/payment/aqayepardakht)) دانلود کنید.  
 2. فایل‌ها را در مسیر مناسب ربات خود کپی کنید (جایگزین فایل‌های قبلی مربوط به درگاه پرداخت).  
    - به طور پیش‌فرض مسیر فایل‌ها در ربات میرزا این است:  
      ```
