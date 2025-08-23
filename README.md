@@ -24,13 +24,13 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/Alna7/Mirzabot-edit-Tetr
 
 اگر نمی‌خواهید از نصب خودکار استفاده کنید، می‌توانید مراحل زیر را به صورت دستی انجام دهید:
 
-1. فایل‌های مورد نیاز را از پوشه [`aqayepardakht`]([s](https://github.com/Alna7/Mirzabot-edit-TetraPay/tree/main/files/payment/aqayepardakht)) دانلود کنید.  
+1. فایل‌های مورد نیاز را از پوشه [`payment/aqayepardakht`]([s](https://github.com/Alna7/Mirzabot-edit-TetraPay/tree/main/files/payment/aqayepardakht)) دانلود کنید.  
 2. فایل‌ها را در مسیر مناسب ربات خود کپی کنید (جایگزین فایل‌های قبلی مربوط به درگاه پرداخت).  
    - به طور پیش‌فرض مسیر فایل‌ها در ربات میرزا این است:  
      ```
-     /var/www/html/mirzabotconfig/
+     /var/www/html/mirzabotconfig/payment/aqayepardakht
      ```
-3.  فایل `text.php` در ادرس /var/www/html/mirzabotconfig/ رو ویرایش کنید و کلمات «آقای پرداخت» رو به «تتراپی» تغییر دهید .
+3.  فایل `text.php` در ادرس /var/www/html/mirzabotconfig رو ویرایش کنید و کلمات «آقای پرداخت» رو به «تتراپی» تغییر دهید .
 
 
 ✅ حالا ربات شما آماده استفاده از درگاه پرداخت تتراپی است.  
