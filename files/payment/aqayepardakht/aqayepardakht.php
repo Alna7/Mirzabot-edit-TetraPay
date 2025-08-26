@@ -38,7 +38,7 @@ $result = curl_exec($ch);
 curl_close($ch);
 $result = json_decode($result);
 if ($result->status == "100") {
-    header('Location: https://tetra98.ir/payment/' . $result->Authority);
+    header('Location: https://tetra98.ir/pay/' . $result->Authority);
 } else {
     $status_pay = [
         '-1' => "amount نمی تواند خالی باشد",
